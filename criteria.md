@@ -25,9 +25,12 @@ Given a query that matches at least one listing, the agent completes all three
 tool calls and returns a fit card — in at least 4 of 5 tries.
 
 **Why this target:**
-<!-- Why 4 of 5 and not 5 of 5? Something about your search, probably —
-     "my search is a plain keyword match and some phrasings will miss" is a
-     real answer. -->
+The search is deterministic, so the same query finds the same item every time.
+What can vary between tries is the two model calls after it. Each run makes two
+requests on the free tier at temperature 0.9, and one of them can come back
+rate-limited, blank or unreachable. 5 of 5 would be promising something the
+code doesn't control. Below 4 of 5 would mean something is wrong in the loop
+itself rather than an occasional bad model call.
 
 ---
 
@@ -37,67 +40,67 @@ Given a query that matches no listings, the agent stops before calling
 `suggest_outfit` and returns a message naming what to change — 5 of 5 tries.
 
 **Why this target:**
-<!-- Why is 5 of 5 reasonable here when criterion 1 isn't? What's different
-     about this path? -->
+This path never reaches the model. `search_listings` is plain Python over a
+fixed file, and the branch in `run_agent` runs before either model call. Nothing
+on this path is random, so the same impossible query has to stop the same way
+every time. A single try that goes on to call `suggest_outfit` means the branch
+is broken, not unlucky.
 
 ---
 
-## 3. Something about state
+## 3. The item search found is the item every later tool received
 
-<!-- YOU WRITE THIS ONE.
-
-     How would you know that the item your search found is the same item the
-     next tool received? Name something countable or observable.
-
-     This is the criterion people find hardest, because state failure doesn't
-     look like state failure — it looks like a tool problem. Something that
-     compares session["selected_item"] against what actually reached
-     suggest_outfit is the shape you're after. -->
-
-
+Given a matching query, `session["selected_item"]` has the same `id` as
+`session["search_results"][0]`. The trace shows that same item (same title and
+price) as the input to both `suggest_outfit` and `create_fit_card`. A try passes
+only if all three agree. Target: 5 of 5 tries.
 
 **Why this target:**
-
-
+Handing the item from one tool to the next is plain Python reading a dict out of
+the session, with no model involved. It can't be "mostly right". Either the loop
+reads `selected_item` back out of the session, or it passes a stale or
+overwritten value. One mismatch is a wiring bug. It would look like a bad outfit
+suggestion even though the tool did exactly what it was given.
 
 ---
 
-## 4. Something about the fit card
+## 4. The fit card is a postable caption about the right item
 
-<!-- YOU WRITE THIS ONE.
+For the matching query run 5 times with caching off, a fit card passes only if
+all four of these hold:
+- it is 2–4 sentences long
+- it contains the selected item's exact price (e.g. `$24`)
+- it names the item's platform (`depop`, `thredUp` or `poshmark`, any case)
+- it does not contain the text `None`
 
-     The fit card calls a model, so the same input can produce different words
-     each time. That's not a bug — it's the nature of the tool. So what would
-     make it acceptable?
-
-     Think about what you'd actually be unhappy to see. A caption that never
-     mentions the price? Two different items producing the same opening
-     sentence? A card longer than a caption anyone would post? Any of those can
-     be turned into a number. -->
-
-
+Target: at least 4 of 5 tries.
 
 **Why this target:**
-
-
+The prompt asks for all four, but at temperature 0.9 the model can still drop
+the price or run to a fifth sentence, so 5 of 5 isn't something the code can
+guarantee. The `None` check is there because 32 of the 40 listings have no
+brand, and a prompt that pastes `brand` in blindly would print "None" in the
+caption. More than one miss in five would mean the prompt isn't working, not
+that the model had an off try.
 
 ---
 
-## 5. Your choice
+## 5. Search respects the price ceiling and the size, exactly
 
-<!-- YOU WRITE THIS ONE TOO.
+For `'vintage top size S under $30'`, `session["search_results"]` is non-empty
+and every listing in it passes both of these:
+- priced at or below $30
+- has `S` as a whole size token (`S`, `S/M`) or is `One Size`
 
-     Pick something you actually care about getting right. Speed, the empty
-     wardrobe path, what happens when the model can't be reached, whether the
-     search respects a price ceiling — anything, as long as it names a number
-     or an observable outcome. -->
-
-
+No `US 7`, `US 9` or `XL (fits oversized)`, all of which contain the letter s.
+Target: 5 of 5 tries.
 
 **Why this target:**
-
-
-
+The size strings in this data are traps for a substring test. `"s"` is inside
+`"US 9"`, `"One Size"` and `"XL (fits oversized)"`, and a search that returns
+shoes for a small top reads as broken even when every later step works.
+`search_listings` makes no model call, so the same query must give the same
+filtered results every time. Anything less than 5 of 5 is a bug in the filter.
 ---
 
 <!-- ─────────────────────────────────────────────────────────────────────────
