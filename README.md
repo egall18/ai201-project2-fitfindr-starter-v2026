@@ -244,18 +244,48 @@ Nothing beats broken-in Levi's with that exact fade at the knees. Paired them wi
 
 | Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
 |---|---|---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |  |  |
+| 1. A matching query completes all three tools | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. An impossible query stops before the second tool | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. The item search found is the item every later tool received | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4. The fit card is a postable caption about the right item | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 5. Search respects the price ceiling and the size, exactly | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+
+`python run_eval.py --label before` →
+[results/run_2026-10-07_1815_before.md](results/run_2026-10-07_1815_before.md).
+Caching was off: 50 real model calls, 0 served from cache, and all five outfits
+and all five fit cards differ from each other in every scenario that reaches the
+model. The empty-wardrobe scenario is a diagnostic run (not one of the five). It
+completed all 5 tries with general styling advice and a fit card.
 
 **Real output from one try**, pasted as text, naming the file and function
-that produced it:
+that produced it. This is criterion 4, try 1: the loop in `agent.py::run_agent`,
+called by `run_eval.py::run_once`. The caption is from `tools.py::create_fit_card`.
 
 ```
+query: vintage graphic tee under $30   (example wardrobe, caching off)
 
+[1] parse_query (regex)
+      in:  vintage graphic tee under $30
+      out: {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+      out: 10 items: Y2K Baby Tee — Butterfly Print, Graphic Tee — 2003 Tour Bootleg Style, Vintage Band Tee — Faded Grey … +7 more
+      →    branch: results, selected_item = search_results[0]
+[3] suggest_outfit
+      in:  Y2K Baby Tee — Butterfly Print ($18.0, depop)
+      out: Outfit One Y2K Baby Tee — Butterfly Print Baggy straight-leg jeans, dark wash Chunky white sneakers Black cros…
+      →    wardrobe: 10 items
+[4] create_fit_card
+      in:  Y2K Baby Tee — Butterfly Print ($18.0, depop)
+      out: Found the ultimate Y2K baby tee with the sweetest little butterfly print. It's up on my depop right now for $1…
+      →    done
+
+Fit card:
+Found the ultimate Y2K baby tee with the sweetest little butterfly print. It's up on my depop right now for $18. I love balancing the cropped fit with baggy dark wash jeans and chunky sneakers for that classic early 2000s streetwear look.
 ```
+
+3 sentences, the exact price `$18`, the platform `depop`, and no `None`, so it
+passes all four parts of criterion 4. The brand is `None` for this listing.
 
 ---
 
