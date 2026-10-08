@@ -456,24 +456,86 @@ $ AI201_CACHE=0 python app.py ask 'vintage graphic tee under $30' --trace   # ke
 
      `python run_eval.py --label after` -->
 
-**What I changed:**
+**What I changed:** two rules added to the end of the prompt in
+`tools.py::create_fit_card`, and nothing else:
 
-**Which failure it was meant to fix:**
+```
+- Don't open with "Found" or any line about finding or thrifting it. Open on a detail of the item or on how it's being worn.
+- Don't close with "before I change my mind", "keep it for myself" or any other line about keeping it.
+```
+
+The system message, the "thrift find" framing, the temperature and every other
+rule stayed the same, so the after-run measures these two lines only. I
+smoke-tested once before the measured run (cache off, one call). The opener rule
+worked on that try, but the closer, which I had first written as "a line about
+keeping it for yourself or changing your mind", still ended "before I change my
+mind". So I quoted the exact phrases, the same way the opener rule quotes
+"Found", before running the eval.
+
+**Which failure it was meant to fix:** the template diagnosed above. The prompt
+said what a card must contain but not how to open or close it, so 23 of 25
+cards opened with "Found…" and 10 of 25 closed on "before I change my mind / keep
+it for myself".
 
 ### Run Log — After
 
 | Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
 |---|---|---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |  |  |
+| 1. A matching query completes all three tools | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. An impossible query stops before the second tool | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. The item search found is the item every later tool received | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4. The fit card is a postable caption about the right item | 4 of 5 | PASS | FAIL | FAIL | PASS | FAIL | **MISSED (2/5)** |
+| 5. Search respects the price ceiling and the size, exactly | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+
+`python run_eval.py --label after` →
+[results/run_2026-10-07_1827_after.md](results/run_2026-10-07_1827_after.md).
+Caching was off: 44 real model calls.
 
 **Did it help, and how do I know:**
 
-<!-- If it made things worse, say that. Honestly reported, that earns full
-     credit and is more interesting than one that worked. -->
+On the failure it targeted, the opener, yes, completely. On the closer, only
+partly. And the run log got worse for a reason the change didn't cause.
+
+| Measured on every fit card in the run | Before (25 cards) | After (19 cards) |
+|---|---|---|
+| Opens with "Found…" | 23 | **0** |
+| Opens with "Found the ultimate" | 14 | **0** |
+| Closes on "change my mind" / "keep it for myself" | 10 | **0** |
+| Closes on "…before someone else snags it / does" | 0 | 6 |
+| Passes all four criterion-4 format checks | 25 / 25 | 19 / 19 |
+
+- **The opener is fixed.** No card starts with "Found" now. They open on the
+  item ("That pastel butterfly graphic…", "Structured shoulders…", "The crisp
+  white sleeve stripes…"). This holds across all three items, not only the tee.
+- **The closer moved instead of going away.** The quoted phrases are gone, but
+  6 of 19 cards now end on a new urgency line, "before someone else snags it".
+  Counting any "grab it before…" closer, that's 10 of 25 (40%) before and 6 of 19
+  (32%) after. Banning specific words just pushed the model to the next most
+  likely sign-off.
+- **The format didn't break.** Every card that was written still passes all four
+  criterion-4 checks (2–4 sentences, exact price, platform, no `None`).
+- **Criterion 4 went from MET 5/5 to MISSED 2/5, and the change isn't why.**
+  The three failed tries (2, 3 and 5) wrote no card at all. Each stopped at step
+  3, `suggest_outfit`, which runs *before* `create_fit_card` and wasn't touched,
+  with the same error:
+
+  ```
+  Found Y2K Baby Tee — Butterfly Print for $18 on depop, but the styling model couldn't be reached, so there's no outfit or fit card this time.
+    (Couldn't reach the model: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}})
+  ```
+
+  Criterion 5's scenario hit the same 503 on tries 2, 3 and 5. They passed only
+  because criterion 5 checks the search, which had already finished. All six
+  503s came in the last two scenarios. Place: the model, then the adapter. The
+  mechanism: `generate.py` retries only rate-limit errors (`429`, "resource
+  exhausted"), so a 503 "high demand" error becomes `ModelUnavailable` on the
+  first attempt with no retry. The Milestone 2 handler then did its job: a
+  message, not a crash. This is the "unreachable" case criterion 1's reason said
+  could happen. It hit criterion 4's scenario instead, and three times rather
+  than once.
+
+I kept the miss rather than re-running until the 503s went away. Re-running
+until it passes would make this table say something that didn't happen.
 
 
 

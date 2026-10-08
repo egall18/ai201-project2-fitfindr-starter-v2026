@@ -301,7 +301,11 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
         f"- Mention the item, the price written exactly as {_price(new_item['price'])}, "
         f"and the platform written exactly as {new_item['platform']} — once each.\n"
         "- Only mention a brand if one is listed above.\n"
-        "- Be specific about the vibe of the outfit, not generic hype."
+        "- Be specific about the vibe of the outfit, not generic hype.\n"
+        "- Don't open with \"Found\" or any line about finding or thrifting it. "
+        "Open on a detail of the item or on how it's being worn.\n"
+        "- Don't close with \"before I change my mind\", \"keep it for myself\" "
+        "or any other line about keeping it."
     )
     response = generate(prompt, system=system)
     if not response.strip():
