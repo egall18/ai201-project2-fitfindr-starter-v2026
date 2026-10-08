@@ -306,19 +306,83 @@ that produced it:
 **Happy path**
 
 ```
-
+$ python app.py ask 'vintage graphic tee under $30' --trace
+[1] parse_query (regex)
+      in:  vintage graphic tee under $30
+      out: {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+      out: 10 items: Y2K Baby Tee — Butterfly Print, Graphic Tee — 2003 Tour Bootleg Style, Vintage Band Tee — Faded Grey … +7 more
+      →    branch: results, selected_item = search_results[0]
+[3] suggest_outfit
+      in:  Y2K Baby Tee — Butterfly Print ($18.0, depop)
+      out: Outfit 1 Y2K Baby Tee — Butterfly Print Baggy straight-leg jeans, dark wash Chunky white sneakers Black crossb…
+      →    wardrobe: 10 items
+[4] create_fit_card
+      in:  Y2K Baby Tee — Butterfly Print ($18.0, depop)
+      out: Found the ultimate Y2K baby tee with the cutest pastel butterfly graphic. It's listed on depop for $18 and loo…
+      →    done
 ```
 
 **Empty search**
 
 ```
+$ python app.py ask 'designer ballgown size XXS under $5' --trace
+[1] parse_query (regex)
+      in:  designer ballgown size XXS under $5
+      out: {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+      out: [] (empty)
+      →    branch: empty, stopping before suggest_outfit
 
+  Nothing matched 'designer ballgown' in size XXS under $5. Try to raise your budget above $5, drop the size XXS filter, or use broader keywords (e.g. 'dress' instead of a specific style).
+
+0 model calls this session
 ```
 
-**On the MCP move:** <!-- what changed in your code, and whether anything
-behaved differently afterwards. If the rewire didn't work, say exactly where it
-broke — the error text and the last thing that worked. That earns the point in
-full. -->
+The empty search stops after step 2, two steps shorter than the happy path,
+with 0 model calls.
+
+**On the MCP move:** `search_listings` is registered in `mcp_server.py`, and
+`agent.py::run_agent` now calls it with `call_tool("search_listings", {...})`
+instead of importing it. Before the swap, I ran the direct function and the MCP
+call side by side on seven queries: three that match, two size traps (`size S`
+and `size 8`), and three that return nothing. All seven came back identical,
+down to the field types. Empty searches arrive as `[]`, not `None`, and a
+missing brand arrives as `None`, so the branch didn't need to change. The only
+behavior difference is speed: each call starts and stops the server, which adds
+about 2 seconds per search. The move also adds a new way to fail, so
+`run_agent` catches `MCPError`. I pointed the client at a server file that
+doesn't exist, and the run stopped at step 2 with "The listing search couldn't
+be reached, so nothing was searched" instead of a traceback.
+
+**Failure modes, triggered on purpose**
+
+| Failure | How I triggered it | What happens now |
+|---|---|---|
+| Empty search | `python app.py ask 'designer ballgown size XXS under $5'` | The branch stops after `search_listings` with a message naming the filters to loosen. 0 model calls (trace above). |
+| Empty wardrobe | `python app.py ask 'vintage graphic tee under $30' --empty-wardrobe --trace` | `suggest_outfit` gives general styling advice without claiming the user owns anything. The trace notes `wardrobe: empty, general styling advice`, and the run still finishes with a fit card. |
+| Model unreachable | One character of the API key changed, cache off (`AI201_CACHE=0`) | Before the fix, `run_agent` raised `ModelUnavailable` out of `tools.py::suggest_outfit` as a traceback and returned no session. Now it catches the error, keeps the item it found and stops (trace below). |
+
+```
+$ AI201_CACHE=0 python app.py ask 'vintage graphic tee under $30' --trace   # key off by one character
+[1] parse_query (regex)
+      in:  vintage graphic tee under $30
+      out: {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+      out: 10 items: Y2K Baby Tee — Butterfly Print, Graphic Tee — 2003 Tour Bootleg Style, Vintage Band Tee — Faded Grey … +7 more
+      →    branch: results, selected_item = search_results[0]
+[3] suggest_outfit
+      in:  Y2K Baby Tee — Butterfly Print ($18.0, depop)
+      →    ModelUnavailable, stopping
+
+  Found Y2K Baby Tee — Butterfly Print for $18 on depop, but the styling model couldn't be reached, so there's no outfit or fit card this time.
+  (The model rejected your API key. Check GEMINI_API_KEY in your .env file, or create a fresh key at aistudio.google.com.)
+
+1 model calls this session
+```
 
 
 

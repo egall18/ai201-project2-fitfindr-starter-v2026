@@ -19,7 +19,7 @@ import config
 import trace
 from tools import suggest_outfit, create_fit_card
 from generate import ModelUnavailable
-from mcp_client import call_tool
+from mcp_client import MCPError, call_tool
 
 
 # ── session state ─────────────────────────────────────────────────────────────
@@ -191,8 +191,10 @@ def run_agent(query: str, wardrobe: dict) -> dict:
       • A handler for ModelUnavailable, so a bad key produces a message rather
         than a stack trace. The import is already at the top of this file.
     """
+    trace.start_trace()
     session = new_session(query, wardrobe)
     session["parsed"] = parse_query(query)
+    trace.step("parse_query (regex)", inputs=query, returned=str(session["parsed"]))
 
     # Each pass runs one step and decides the next one from what that step put
     # in the session. None means the run is over, finished or stopped.
@@ -205,33 +207,80 @@ def run_agent(query: str, wardrobe: dict) -> dict:
 
         if next_step == "search":
             parsed = session["parsed"]
-            # search_listings runs on the MCP server (mcp_server.py), not in-process.
-            session["search_results"] = call_tool("search_listings", {
+            arguments = {
                 "description": parsed["description"],
                 "size": parsed["size"],
                 "max_price": parsed["max_price"],
-            })
+            }
+            # search_listings runs on the MCP server (mcp_server.py), not in-process.
+            try:
+                session["search_results"] = call_tool("search_listings", arguments)
+            except MCPError as exc:
+                session["error"] = (
+                    "The listing search couldn't be reached, so nothing was "
+                    f"searched. Try again in a moment.\n  ({exc})"
+                )
+                trace.step("search_listings (via MCP)", inputs=str(arguments),
+                           note="MCP call failed, stopping")
+                next_step = None
+                continue
+
             # THE BRANCH: nothing found means stop here, before any model call.
             if not session["search_results"]:
                 session["error"] = _no_results_message(parsed)
                 next_step = None
+                note = "branch: empty, stopping before suggest_outfit"
             else:
                 session["selected_item"] = session["search_results"][0]
                 next_step = "suggest"
+                note = "branch: results, selected_item = search_results[0]"
+            trace.step("search_listings (via MCP)", inputs=str(arguments),
+                       returned=session["search_results"], note=note)
 
         elif next_step == "suggest":
-            session["outfit_suggestion"] = suggest_outfit(
-                session["selected_item"], session["wardrobe"]
+            owned = len(session["wardrobe"].get("items", []))
+            try:
+                session["outfit_suggestion"] = suggest_outfit(
+                    session["selected_item"], session["wardrobe"]
+                )
+            except ModelUnavailable as exc:
+                _stop_model_unavailable(session, "suggest_outfit", exc)
+                next_step = None
+                continue
+            trace.step(
+                "suggest_outfit",
+                inputs=session["selected_item"],
+                returned=session["outfit_suggestion"],
+                note=f"wardrobe: {owned} items" if owned
+                else "wardrobe: empty, general styling advice",
             )
             next_step = "fit_card"
 
         elif next_step == "fit_card":
-            session["fit_card"] = create_fit_card(
-                session["outfit_suggestion"], session["selected_item"]
-            )
+            try:
+                session["fit_card"] = create_fit_card(
+                    session["outfit_suggestion"], session["selected_item"]
+                )
+            except ModelUnavailable as exc:
+                _stop_model_unavailable(session, "create_fit_card", exc)
+                next_step = None
+                continue
+            trace.step("create_fit_card", inputs=session["selected_item"],
+                       returned=session["fit_card"], note="done")
             next_step = None
 
     return session
+
+
+def _stop_model_unavailable(session: dict, tool: str, exc: ModelUnavailable) -> None:
+    """End the run with a readable message instead of a stack trace."""
+    item = session["selected_item"]
+    session["error"] = (
+        f"Found {item['title']} for ${item['price']:g} on {item['platform']}, "
+        f"but the styling model couldn't be reached, so there's no outfit or "
+        f"fit card this time.\n  ({exc})"
+    )
+    trace.step(tool, inputs=item, note="ModelUnavailable, stopping")
 
 
 # ── running it directly ───────────────────────────────────────────────────────
