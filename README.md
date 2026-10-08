@@ -309,13 +309,44 @@ passes all four parts of criterion 4. The brand is `None` for this listing.
 
 | # | Criterion | Target | Verdict | How I decided |
 |---|---|---|---|---|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| 3 |  |  |  |  |
-| 4 |  |  |  |  |
-| 5 |  |  |  |  |
+| 1 | A matching query completes all three tools | 4 of 5 | MET (5/5) | Every try has `session["error"]` as `None`, a non-empty `fit_card`, and `search_listings (via MCP)`, `suggest_outfit` and `create_fit_card` all in its trace. The rate limiter paused the run 3 times, but no try failed. |
+| 2 | An impossible query stops before the second tool | 5 of 5 | MET (5/5) | Every try has an `error` naming what to change ("raise your budget above $5, drop the size XXS filter…"). `outfit_suggestion` and `fit_card` are `None`, and the trace ends at step 2 with no `suggest_outfit`. |
+| 3 | The item search found is the item every later tool received | 5 of 5 | MET (5/5) | In every try `selected_item["id"]` equals `search_results[0]["id"]` (`lst_004`). The trace's `in:` line for both `suggest_outfit` and `create_fit_card` reads exactly `90s Track Jacket — Navy/White Stripe ($45.0, poshmark)`. |
+| 4 | The fit card is a postable caption about the right item | 4 of 5 | MET (5/5) | Every card is 2–3 sentences and contains `$18` and `depop`. None contains `None`, even though this listing's brand is `None`. |
+| 5 | Search respects the price ceiling and the size, exactly | 5 of 5 | MET (5/5) | Every try returns the same 5 results: all $30 or less, sized `S/M`, `One Size` or `One Size (adjustable)`. No `US 7`, `US 9` or `XL (fits oversized)`. |
+
+I scored every try with a script that checks each criterion's wording against
+the saved session and trace, then read the cards myself. One correction on the
+way: the script first failed all five tries of criterion 5 because it only
+counted the exact string `One Size`, not `One Size (adjustable)`. The criterion
+says "or is `One Size`", and that listing is. The scorer was wrong, not the
+search, so I fixed the scorer and left the criterion as written.
 
 **Diagnoses**
+
+No criterion missed, so there is no miss to diagnose. The output still has one
+pattern that the criteria don't measure, and it is the weakest part of the run.
+
+**The fit cards share one template. Place: the model's output, caused by the
+`tools.py::create_fit_card` prompt.** Across all 25 cards in the run (three
+different items), 23 open with "Found…": 14 with "Found the ultimate", and 4
+more with "Found this vintage". 10 of 25 end on the same seller line, "before I
+change my mind and keep it" or "before I keep it for myself". This isn't one
+item repeating itself. The Champion track jacket and the Wrangler denim jacket
+open with "Found" 4 of 5 times each, the same as the tee. It isn't the cache or
+the temperature either: caching was off and no two cards are identical. The
+model varies the middle of the caption and keeps the frame.
+
+The mechanism: the prompt says what a card must *contain* (2–4 sentences, the
+price and platform once each, a brand only if listed) but nothing about how it
+should *open or close*. Its framing, "captions for thrift finds" in the system
+message and "a post about this thrift find" in the prompt, points to "Found…" as
+the most likely first word. With no instruction against it, temperature 0.9
+only reshuffles the words after it.
+
+Criterion 4 didn't catch this because it scores each card on its own, and every
+card on its own is fine. The repetition only shows when you read them side by
+side, which is exactly what a follower scrolling past several posts would do.
 
 
 
