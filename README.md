@@ -547,6 +547,45 @@ until it passes would make this table say something that didn't happen.
      you did. "I ran out of time" is fine if it's true. Pretending nothing is
      left is not. -->
 
+**Criterion 4 is still MISSED (2/5 in the after-run), because a busy model
+isn't retried.** The three failed tries never got to write a card. `suggest_outfit`
+got `503 UNAVAILABLE` ("This model is currently experiencing high demand"), and
+`generate.py::generate` treats anything that isn't a rate limit as fatal. Its
+retry rule only checks for `429`, "resource exhausted" or "rate limit", so a 503
+raises `ModelUnavailable` on the first attempt, even though the error itself
+says "Spikes in demand are usually temporary". **What I'd do:** count `503` /
+`unavailable` as retryable in that same `rate_limited` check, so it goes through
+the existing backoff (up to `MAX_RETRIES`, 5 attempts) before giving up. A bad
+key would still fail fast: it returns `401 UNAUTHENTICATED`, which I checked
+with the same off-by-one key from Milestone 2. Then re-run `--label after` to see whether
+criterion 4 returns to at least 4 of 5. **Why I stopped:** Milestone 5 is one
+change, measured on its own. Fixing the retry in the same run would have mixed
+two causes in one table, and I couldn't have said which one moved criterion 4.
+The miss also isn't caused by anything in my loop. It's the model being
+overloaded, and my handler already turns it into a readable message rather than
+a crash.
+
+**The fit card closer moved instead of going away.** This isn't a criterion
+miss: all 19 after-run cards pass criterion 4's format checks. But banning
+"before I change my mind" and "keep it for myself" just made "before someone
+else snags it" the new default (6 of 19). A list of banned phrases will keep
+losing to whatever the next most likely sign-off is. **What I'd do:** give the
+last sentence a job instead of a ban, for example "end on one styling detail
+from the outfit". Or drop the seller framing ("captions for thrift finds") from
+the system message, since that framing is what invites urgency lines. Then
+measure it the same way, counting closers across all cards. **Why I stopped:**
+same reason, one change per measured run, and the opener (23/25 → 0/19) was the
+bigger half of the template.
+
+**Criterion 4 can't see repetition.** It scores each card on its own, so it
+stayed MET 5/5 in the before-run while 23 of 25 cards opened the same way. I
+found the template by reading the cards side by side, not from the table. It
+isn't broken under this unit's rule, since it measures exactly what it says, so
+I left it as written. **What I'd do next unit:** add a separate criterion that
+scores the set, such as "across 5 tries on 3 different items, no two cards share
+their first three words". That way the next template shows up in the run log
+instead of in my reading.
+
 
 
 <!-- ═════════════════════════════════════════════════════════════════════
